@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.10/dist/htmx.min.js"
+            integrity="sha384-H5SrcfygHmAuTDZphMHqBJLc3FhssKjG7w/CeCpFReSfwBWDTKpkzPP8c+cLsK+V"
+            crossorigin="anonymous"></script>
+    <title>Waster</title>
+</head>
+<body>
+<div class="container">
+    <nav>
+        <ul>
+            <li>
+                <hgroup>
+                    <h1>Wander... Literally The Cloud</h1>
+                    <p>Click begin to start your journey.</p>
+                </hgroup>
+            </li>
+        </ul>
+        <ul>
+            <li><a id="open" class="secondary" role="button">Add New</a></li>
+            <li><a role="button" href="/begin">Begin</a></li>
+        </ul>
+    </nav>
+    <div>
+        <p>Directory of Sites:</p>
+        <ul id="sites-list">
+            {{ range .sites }}
+            <li>
+                <a href="{{ .URL }}">{{ .Title }}</a>
+                <a href="#" class="delete-trigger" style="text-decoration: none;" data-url="{{ .URL }}">🗑️</a>
+            </li>
+            {{ end }}
+        </ul>
+    </div>
+
+    <dialog id="dialog-save">
+        <article>
+            <h2>Add a New Site</h2>
+            <p>
+                Enter the name and the URL and we'll put it in rotation permanently.
+            </p>
+            <form id="add-form" hx-post="/save" hx-swap="none">
+                <fieldset>
+                    <label>
+                        Name
+                        <input name="name" placeholder="Site name" />
+                    </label>
+                    <label>
+                        URL
+                        <input name="url" placeholder="Link to the site" />
+                    </label>
+                </fieldset>
+            </form>
+            <footer>
+                <button type="button" class="secondary" id="cancel-save">Cancel</button>
+                <button type="submit" form="add-form" id="confirm-save" style="width: auto;">Save</button>
+            </footer>
+        </article>
+    </dialog>
+
+    <dialog id="dialog-delete">
+        <article>
+            <h2>Delete</h2>
+            <p>
+                Are you sure you want to delete <strong id="delete-target-url"></strong>?
+            </p>
+            <footer>
+                <button type="button" class="secondary" id="cancel-delete">Cancel</button>
+                <button type="button" id="confirm-delete" style="width: auto;">Delete</button>
+            </footer>
+        </article>
+    </dialog>
+
+    <dialog id="dialog-save-error">
+        <article>
+            <h2>Failed to add site</h2>
+            <p>
+                There was an error adding the site. Check the console for more info.
+            </p>
+            <footer>
+                <button type="button" class="secondary" id="close-save-error">Close</button>
+            </footer>
+        </article>
+    </dialog>
+
+    <dialog id="dialog-delete-error">
+        <article>
+            <h2>Failed to delete site</h2>
+            <p>
+                There was an error deleting the site. Check the console for more info.
+            </p>
+            <footer>
+                <button type="button" class="secondary" id="close-delete-error">Close</button>
+            </footer>
+        </article>
+    </dialog>
+
+</div>
+</body>
+<script>
+    const saveDialog = document.getElementById("dialog-save");
+    const deleteDialog = document.getElementById("dialog-delete");
+    const saveErrorDialog = document.getElementById("dialog-save-error");
+    const deleteErrorDialog = document.getElementById("dialog-delete-error");
+    const form = document.getElementById("add-form");
+
+    let pendingDeleteUrl = null;
+
+    // ---- Save dialog ----
+
+    document.getElementById("open").addEventListener("click", () => {
+        saveDialog.showModal();
+    });
+
+    saveDialog.addEventListener("click", (e) => {
+        if (e.target === saveDialog) {
+            saveDialog.close();
+            form.reset();
+        }
+    });
+
+    document.getElementById("cancel-save").addEventListener("click", () => {
+        saveDialog.close();
+        form.reset();
+    });
+
+    form.addEventListener("htmx:afterRequest", (e) => {
+        if (!e.detail.successful) {
+            console.error("save failed", e.detail);
+            saveErrorDialog.showModal();
+        } else {
+            form.reset()
+            location.reload();
+        }
+    });
+
+    form.addEventListener("htmx:sendError", (e) => {
+        console.error("network error on save", e.detail);
+        saveDialog.close();
+        saveErrorDialog.showModal();
+        form.reset();
+    });
+
+    saveErrorDialog.addEventListener("click", (e) => {
+        if (e.target === saveErrorDialog) {
+            saveErrorDialog.close();
+        }
+    });
+
+    document.getElementById("close-save-error").addEventListener("click", () => {
+        saveErrorDialog.close();
+    });
+
+    // ---- Delete dialog ----
+
+    document.getElementById("sites-list").addEventListener("click", (e) => {
+        const trigger = e.target.closest(".delete-trigger");
+        if (!trigger) return;
+        e.preventDefault();
+
+        pendingDeleteUrl = trigger.dataset.url;
+        document.getElementById("delete-target-url").textContent = pendingDeleteUrl;
+        deleteDialog.showModal();
+    });
+
+    deleteDialog.addEventListener("click", (e) => {
+        if (e.target === deleteDialog) {
+            deleteDialog.close();
+            pendingDeleteUrl = null;
+        }
+    });
+
+    document.getElementById("cancel-delete").addEventListener("click", () => {
+        deleteDialog.close();
+        pendingDeleteUrl = null;
+    });
+
+    document.getElementById("confirm-delete").addEventListener("click", async () => {
+        if (!pendingDeleteUrl) return;
+
+        try {
+            const resp = await fetch("/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: new URLSearchParams({ url: pendingDeleteUrl }),
+            });
+
+            deleteDialog.close();
+
+            if (!resp.ok) {
+                console.error("delete failed", resp.status, await resp.text());
+                deleteErrorDialog.showModal();
+            } else {
+                location.reload();
+            }
+        } catch (err) {
+            console.error("network error on delete", err);
+            deleteDialog.close();
+            deleteErrorDialog.showModal();
+        } finally {
+            pendingDeleteUrl = null;
+        }
+    });
+
+    deleteErrorDialog.addEventListener("click", (e) => {
+        if (e.target === deleteErrorDialog) {
+            deleteErrorDialog.close();
+        }
+    });
+
+    document.getElementById("close-delete-error").addEventListener("click", () => {
+        deleteErrorDialog.close();
+    });
+</script>
+</html>
