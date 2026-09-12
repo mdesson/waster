@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"log"
 	"log/slog"
@@ -11,6 +12,11 @@ import (
 	"os"
 	"sort"
 	"strings"
+)
+
+const (
+	sitesDirEnvVar = "SITES_DIR"
+	sitesPath      = "."
 )
 
 type Site struct {
@@ -53,7 +59,7 @@ func main() {
 func initSites() ([]Site, error) {
 	var sites []Site
 
-	sitesBytes, err := os.ReadFile("sites.json")
+	sitesBytes, err := os.ReadFile(sitesLocation())
 	if err != nil {
 		return nil, err
 	}
@@ -69,9 +75,20 @@ func initSites() ([]Site, error) {
 	return sites, nil
 }
 
+func sitesLocation() string {
+	directory := sitesPath
+
+	path, ok := os.LookupEnv(sitesDirEnvVar)
+	if ok {
+		directory = path
+	}
+
+	return fmt.Sprintf("%s/sites.json", directory)
+}
+
 func overwriteSites(sites []Site) error {
 	// write back to json to survive restarts
-	f, err := os.OpenFile("sites.json", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0755)
+	f, err := os.OpenFile(sitesLocation(), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0755)
 	defer f.Close()
 	if err != nil {
 		return err
